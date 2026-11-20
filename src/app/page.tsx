@@ -667,9 +667,14 @@ export default function PublicHomePage() {
                 <div className="pl-3 border-l border-slate-700 text-white">
                   <HBTechLabsLogo className="h-7" />
                 </div>
-                <span className="text-[10px] font-mono px-2.5 py-1 rounded bg-slate-800/80 text-slate-400 border border-slate-700">
-                  Sponsor ROI: {sponsorStats.impressions.toLocaleString()} views • {sponsorStats.clicks} clicks
-                </span>
+              // ✅ KODE BARU (Identik di Server & Browser)
+<span
+  suppressHydrationWarning
+  className="text-[10px] font-mono px-2.5 py-1 rounded bg-slate-800/80 text-slate-400 border border-slate-700"
+>
+  Sponsor ROI: {String(sponsorStats.impressions).replace(/\B(?=(\d{3})+(?!\d))/g, '.')} views •{' '}
+  {String(sponsorStats.clicks).replace(/\B(?=(\d{3})+(?!\d))/g, '.')} clicks
+</span>
               </div>
             </section>
           </div>
