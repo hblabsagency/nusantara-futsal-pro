@@ -367,6 +367,13 @@ export const INITIAL_GALLERY = [
   },
 ];
 
+export const INITIAL_SPONSORS = [
+  { id: 'sp1', name: 'SPECS FUTSAL', logoUrl: '', accent: 'emerald' },
+  { id: 'sp2', name: 'BANK DKI', logoUrl: '', accent: 'amber' },
+  { id: 'sp3', name: 'MILLS SPORT', logoUrl: '', accent: 'none' },
+  { id: 'sp4', name: 'POCARI SWEAT', logoUrl: '', accent: 'none' },
+];
+
 const STORAGE_KEY = 'nfpl_league_data_v1';
 const AUTH_KEY = 'nfpl_auth_user_v1';
 
@@ -379,6 +386,7 @@ const getDefaultLeagueState = () => ({
   transferWindowOpen: true,
   news: INITIAL_NEWS,
   gallery: INITIAL_GALLERY,
+  sponsors: INITIAL_SPONSORS,
   lineups: {
     t1: ['p1', 'p2', 'p3', 'p7'],
     t2: ['p9', 'p10', 'p11', 'p12'],
@@ -401,7 +409,11 @@ export function LeagueProvider({ children }) {
       const savedData = localStorage.getItem(STORAGE_KEY);
       if (savedData) {
         const parsed = JSON.parse(savedData);
-        setLeagueState((prev) => ({ ...prev, ...parsed }));
+        setLeagueState((prev) => ({
+          ...prev,
+          ...parsed,
+          sponsors: Array.isArray(parsed.sponsors) ? parsed.sponsors : prev.sponsors,
+        }));
       }
       const savedUser = localStorage.getItem(AUTH_KEY);
       if (savedUser) {
@@ -418,7 +430,12 @@ export function LeagueProvider({ children }) {
     const handleStorageSync = (e) => {
       if (e.key === STORAGE_KEY && e.newValue) {
         try {
-          setLeagueState(JSON.parse(e.newValue));
+          const parsed = JSON.parse(e.newValue);
+          setLeagueState((prev) => ({
+            ...prev,
+            ...parsed,
+            sponsors: Array.isArray(parsed.sponsors) ? parsed.sponsors : prev.sponsors,
+          }));
         } catch {}
       }
       if (e.key === AUTH_KEY) {
@@ -562,7 +579,7 @@ export function LeagueProvider({ children }) {
   }, [leagueState.teams, leagueState.matches]);
 
   // ============================================================================
-  // MUTASI DATA DARI ADMIN & MANAGER YANG MENGUBAH HALAMAN USER (app/page.tsx)
+  // MUTASI DATA DARI ADMIN & MANAGER YANG MENGUBAH HALAMAN USER
   // ============================================================================
   const recordMatchEvent = (matchId, teamSide, eventType, specificPlayerId = '') => {
     let feedback = '';
@@ -866,6 +883,29 @@ export function LeagueProvider({ children }) {
     }));
   };
 
+  // Kelola Sponsor Beranda (Upload & Hapus Logo)
+  const addSponsor = ({ name, logoUrl }) => {
+    updateLeague((prev) => ({
+      ...prev,
+      sponsors: [
+        ...(prev.sponsors || []),
+        {
+          id: `sp-${Date.now()}`,
+          name: (name || '').trim().toUpperCase(),
+          logoUrl: logoUrl || '',
+          accent: 'none',
+        },
+      ],
+    }));
+  };
+
+  const removeSponsor = (id) => {
+    updateLeague((prev) => ({
+      ...prev,
+      sponsors: (prev.sponsors || []).filter((s) => s.id !== id),
+    }));
+  };
+
   const incrementSponsorImpression = () => {
     updateLeague((prev) => ({
       ...prev,
@@ -906,6 +946,8 @@ export function LeagueProvider({ children }) {
         addPlayerToSquad,
         addNewsArticle,
         addGalleryItem,
+        addSponsor,
+        removeSponsor,
         incrementSponsorImpression,
         incrementSponsorClick,
       }}

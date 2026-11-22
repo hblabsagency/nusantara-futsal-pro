@@ -1,13 +1,14 @@
 // @ts-nocheck
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  Radio, Shield, Download, LogOut, ExternalLink,
+  Shield, Download, LogOut, ExternalLink,
   Plus, RefreshCw, Newspaper, Image as ImageIcon,
-  Lock, LogIn, CheckCircle2, Calendar
+  Lock, LogIn, CheckCircle2, Calendar, Upload, Trash2,
+  Award, Crop, ZoomIn, ZoomOut, RotateCcw, Move, X, Check, Pencil
 } from 'lucide-react';
 import { useLeague } from '../../context/LeagueContext';
 
@@ -21,6 +22,7 @@ export default function AdminDashboardPage() {
     pendingRegs,
     transferWindowOpen,
     standings,
+    sponsors = [],
     currentUser,
     isHydrated,
     logout,
@@ -33,6 +35,9 @@ export default function AdminDashboardPage() {
     approvePlayerTransfer,
     addNewsArticle,
     addGalleryItem,
+    addSponsor,
+    updateSponsor,
+    removeSponsor,
   } = useLeague();
 
   const [adminSubTab, setAdminSubTab] = useState('MEJA_LAGA'); // 'MEJA_LAGA' | 'VERIFIKASI' | 'KONTEN' | 'AUTO_GRAPHICS'
@@ -62,6 +67,17 @@ export default function AdminDashboardPage() {
     caption: '',
   });
 
+  // Form & State Cropper Logo Sponsor (Tambah & Edit)
+  const [sponsorForm, setSponsorForm] = useState({ name: '', logoUrl: '' });
+  const [editingSponsorId, setEditingSponsorId] = useState(null);
+  const [rawSponsorImg, setRawSponsorImg] = useState(null); // { src, width, height }
+  const [cropZoom, setCropZoom] = useState(1);
+  const [cropOffset, setCropOffset] = useState({ x: 0, y: 0 });
+  const [isDraggingCrop, setIsDraggingCrop] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const cropBoxRef = useRef(null);
+  const cropImgRef = useRef(null);
+
   // Auto-Graphics State
   const [graphicsMatchId, setGraphicsMatchId] = useState('m5');
   const [graphicsTemplate, setGraphicsTemplate] = useState('FULLTIME');
@@ -71,8 +87,130 @@ export default function AdminDashboardPage() {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
+  // Buka Modal Crop saat file dipilih
+  const handleSponsorFileSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result;
+      const img = new window.Image();
+      img.onload = () => {
+        setRawSponsorImg({
+          src: dataUrl,
+          width: img.naturalWidth || img.width,
+          height: img.naturalHeight || img.height,
+        });
+        setCropZoom(1);
+        setCropOffset({ x: 0, y: 0 });
+        setSponsorForm((prev) => ({
+          ...prev,
+          name:
+            prev.name ||
+            file.name
+              .replace(/\.[^/.]+$/, '')
+              .replace(/[-_]/g, ' ')
+              .toUpperCase(),
+        }));
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // Pointer Drag Handler untuk Area Crop
+  const handleCropPointerDown = (e) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setIsDraggingCrop(true);
+    setDragStart({
+      x: e.clientX - cropOffset.x,
+      y: e.clientY - cropOffset.y,
+    });
+  };
+
+  const handleCropPointerMove = (e) => {
+    if (!isDraggingCrop) return;
+    setCropOffset({
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y,
+    });
+  };
+
+  const handleCropPointerUp = (e) => {
+    if (!isDraggingCrop) return;
+    setIsDraggingCrop(false);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {}
+  };
+
+  const fitSponsorToWidth = () => {
+    setCropZoom(1);
+    setCropOffset({ x: 0, y: 0 });
+  };
+
+  const fitSponsorToHeight = () => {
+    if (!rawSponsorImg || !cropBoxRef.current) return;
+    const boxRect = cropBoxRef.current.getBoundingClientRect();
+    const imgAspect = rawSponsorImg.width / rawSponsorImg.height;
+    const boxAspect = boxRect.width / boxRect.height;
+    const fitZoom = Math.max(0.3, Math.min(3, imgAspect / boxAspect));
+    setCropZoom(Number(fitZoom.toFixed(2)));
+    setCropOffset({ x: 0, y: 0 });
+  };
+
+  // Render Hasil Crop ke Canvas (450x150, Rasio 3:1 Presisi)
+  const applySponsorCrop = () => {
+    if (!rawSponsorImg || !cropBoxRef.current || !cropImgRef.current) return;
+
+    const OUT_W = 450;
+    const OUT_H = 150;
+    const boxRect = cropBoxRef.current.getBoundingClientRect();
+    const ratio = OUT_W / boxRect.width;
+
+    const baseW = boxRect.width;
+    const baseH = boxRect.width * (rawSponsorImg.height / rawSponsorImg.width);
+
+    const drawW = baseW * cropZoom * ratio;
+    const drawH = baseH * cropZoom * ratio;
+    const drawX = OUT_W / 2 - drawW / 2 + cropOffset.x * ratio;
+    const drawY = OUT_H / 2 - drawH / 2 + cropOffset.y * ratio;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = OUT_W;
+    canvas.height = OUT_H;
+
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.clearRect(0, 0, OUT_W, OUT_H);
+      ctx.drawImage(cropImgRef.current, drawX, drawY, drawW, drawH);
+      const croppedDataUrl = canvas.toDataURL('image/png');
+      setSponsorForm((prev) => ({ ...prev, logoUrl: croppedDataUrl }));
+    }
+
+    setRawSponsorImg(null);
+    triggerToast('Area crop logo sponsor berhasil diterapkan!');
+  };
+
+  const startEditSponsor = (sp) => {
+    setEditingSponsorId(sp.id);
+    setSponsorForm({ name: sp.name || '', logoUrl: sp.logoUrl || '' });
+  };
+
+  const cancelEditSponsor = () => {
+    setEditingSponsorId(null);
+    setSponsorForm({ name: '', logoUrl: '' });
+  };
+
   if (!isHydrated) {
-    return <div className="min-h-screen bg-[#0D151B] flex items-center justify-center text-sm text-slate-400">Memuat Panel Admin...</div>;
+    return (
+      <div className="min-h-screen bg-[#0D151B] flex items-center justify-center text-sm text-slate-400">
+        Memuat Panel Admin...
+      </div>
+    );
   }
 
   // Guard Autentikasi Client-Side
@@ -96,7 +234,7 @@ export default function AdminDashboardPage() {
               <span>Ke Halaman Login</span>
             </Link>
             <Link
-              href="/"
+              href="/beranda"
               className="flex-1 py-3 px-4 rounded-xl bg-[#0D151B] border border-slate-700 text-slate-300 font-bold text-xs flex items-center justify-center"
             >
               Halaman Publik
@@ -130,11 +268,11 @@ export default function AdminDashboardPage() {
 
           <div className="flex flex-wrap items-center gap-2">
             <Link
-              href="/"
+              href="/beranda"
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#14B866] hover:bg-[#10B981] text-slate-950 font-black text-xs shadow-md"
             >
               <ExternalLink className="w-3.5 h-3.5" />
-              <span>Lihat Hasil di Halaman User (/)</span>
+              <span>Lihat Hasil di Beranda</span>
             </Link>
             <button
               onClick={() => {
@@ -170,6 +308,160 @@ export default function AdminDashboardPage() {
         </div>
       )}
 
+      {/* ====================================================================
+          MODAL CROP INTERAKTIF LOGO SPONSOR (RASIO 3:1 BERANDA)
+         ==================================================================== */}
+      {rawSponsorImg && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-[#131F28] border border-slate-700 shadow-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Crop className="w-4 h-4 text-[#14B866]" />
+                <h3 className="font-black text-sm text-white uppercase tracking-wide">
+                  Atur Crop Logo Sponsor (Rasio 3:1)
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setRawSponsorImg(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <p className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                <Move className="w-3.5 h-3.5 text-[#14B866] shrink-0" />
+                <span>Geser gambar di dalam bingkai hijau dan atur zoom agar pas dengan slot Beranda.</span>
+              </p>
+
+              <div className="p-4 rounded-xl bg-[#080E13] border border-slate-800 flex flex-col items-center justify-center">
+                <div
+                  ref={cropBoxRef}
+                  onPointerDown={handleCropPointerDown}
+                  onPointerMove={handleCropPointerMove}
+                  onPointerUp={handleCropPointerUp}
+                  onPointerCancel={handleCropPointerUp}
+                  className="relative w-full max-w-[360px] aspect-[3/1] rounded-lg overflow-hidden border-2 border-[#14B866] shadow-[0_0_25px_rgba(20,184,102,0.25)] cursor-grab active:cursor-grabbing touch-none select-none"
+                  style={{
+                    backgroundImage:
+                      'linear-gradient(45deg, #16222c 25%, transparent 25%), linear-gradient(-45deg, #16222c 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #16222c 75%), linear-gradient(-45deg, transparent 75%, #16222c 75%)',
+                    backgroundSize: '16px 16px',
+                    backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0',
+                  }}
+                >
+                  <img
+                    ref={cropImgRef}
+                    src={rawSponsorImg.src}
+                    alt="Crop Preview"
+                    draggable={false}
+                    className="absolute left-1/2 top-1/2 w-full h-auto max-w-none pointer-events-none select-none"
+                    style={{
+                      transform: `translate(calc(-50% + ${cropOffset.x}px), calc(-50% + ${cropOffset.y}px)) scale(${cropZoom})`,
+                      transformOrigin: 'center center',
+                    }}
+                  />
+
+                  <div className="absolute inset-0 pointer-events-none grid grid-cols-3 grid-rows-3 opacity-35">
+                    <div className="border-r border-b border-white/40" />
+                    <div className="border-r border-b border-white/40" />
+                    <div className="border-b border-white/40" />
+                    <div className="border-r border-b border-white/40" />
+                    <div className="border-r border-b border-white/40" />
+                    <div className="border-b border-white/40" />
+                    <div className="border-r border-white/40" />
+                    <div className="border-r border-white/40" />
+                    <div />
+                  </div>
+                </div>
+                <span className="text-[10px] font-bold text-slate-500 mt-2">
+                  Ukuran Output: 450 × 150 px (Sesuai Slot Marquee Beranda)
+                </span>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+                  <span>Zoom Gambar</span>
+                  <span className="text-[#14B866] font-mono">{Math.round(cropZoom * 100)}%</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setCropZoom((z) => Math.max(0.3, Number((z - 0.1).toFixed(2))))}
+                    className="p-2 rounded-lg bg-[#0D151B] border border-slate-700 text-slate-300 hover:border-[#14B866]"
+                  >
+                    <ZoomOut className="w-4 h-4" />
+                  </button>
+                  <input
+                    type="range"
+                    min={0.3}
+                    max={3}
+                    step={0.02}
+                    value={cropZoom}
+                    onChange={(e) => setCropZoom(parseFloat(e.target.value))}
+                    className="flex-1 accent-[#14B866] cursor-pointer"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCropZoom((z) => Math.min(3, Number((z + 0.1).toFixed(2))))}
+                    className="p-2 rounded-lg bg-[#0D151B] border border-slate-700 text-slate-300 hover:border-[#14B866]"
+                  >
+                    <ZoomIn className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={fitSponsorToWidth}
+                  className="px-3 py-1.5 rounded-lg bg-[#0D151B] border border-slate-700 hover:border-[#14B866] text-[11px] font-bold text-slate-300"
+                >
+                  Pas Lebar
+                </button>
+                <button
+                  type="button"
+                  onClick={fitSponsorToHeight}
+                  className="px-3 py-1.5 rounded-lg bg-[#0D151B] border border-slate-700 hover:border-[#14B866] text-[11px] font-bold text-slate-300"
+                >
+                  Pas Tinggi (Logo Kotak)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCropZoom(1);
+                    setCropOffset({ x: 0, y: 0 });
+                  }}
+                  className="ml-auto inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#0D151B] border border-slate-700 hover:border-amber-400 text-[11px] font-bold text-amber-400"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Reset</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="px-5 py-3.5 bg-[#0D151B] border-t border-slate-800 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setRawSponsorImg(null)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={applySponsorCrop}
+                className="px-5 py-2 rounded-xl bg-[#14B866] hover:bg-[#10B981] text-slate-950 font-black text-xs inline-flex items-center gap-1.5 shadow-lg"
+              >
+                <Check className="w-4 h-4" />
+                <span>Terapkan Crop</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-3 sm:px-6 pt-6 space-y-6">
         {/* Sub-Tabs */}
@@ -196,7 +488,7 @@ export default function AdminDashboardPage() {
               adminSubTab === 'KONTEN' ? 'bg-[#14B866] text-slate-950 font-black' : 'text-slate-400 hover:text-white'
             }`}
           >
-            📰 Publikasi Berita &amp; Galeri
+            📰 Berita, Galeri &amp; Logo Sponsor
           </button>
           <button
             onClick={() => setAdminSubTab('AUTO_GRAPHICS')}
@@ -554,120 +846,319 @@ export default function AdminDashboardPage() {
         )}
 
         {/* ================================================================
-            TAB 3: KELOLA BERITA & GALERI PUBLIK (CMS)
+            TAB 3: KELOLA BERITA, GALERI & LOGO SPONSOR BERANDA
            ================================================================ */}
         {adminSubTab === 'KONTEN' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Tambah Berita */}
-            <div className="rounded-2xl bg-[#131F28] border border-slate-800 p-6 space-y-4">
-              <h2 className="font-black text-lg text-white flex items-center gap-2">
-                <Newspaper className="w-5 h-5 text-[#14B866]" />
-                <span>Terbitkan Berita &amp; Pengumuman Baru</span>
-              </h2>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (!newsForm.title) return;
-                  addNewsArticle(newsForm);
-                  setNewsForm({ category: 'PENGUMUMAN LIGA', title: '', excerpt: '' });
-                  triggerToast('Berita baru berhasil diterbitkan ke menu Media Publik!');
-                }}
-                className="space-y-3"
-              >
-                <input
-                  type="text"
-                  value={newsForm.category}
-                  onChange={(e) => setNewsForm({ ...newsForm, category: e.target.value })}
-                  placeholder="Kategori (contoh: LAPORAN LAGA)"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#0D151B] border border-slate-700 text-xs text-white"
-                />
-                <input
-                  type="text"
-                  required
-                  value={newsForm.title}
-                  onChange={(e) => setNewsForm({ ...newsForm, title: e.target.value })}
-                  placeholder="Judul Berita Utama *"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#0D151B] border border-slate-700 text-xs text-white"
-                />
-                <textarea
-                  rows={3}
-                  required
-                  value={newsForm.excerpt}
-                  onChange={(e) => setNewsForm({ ...newsForm, excerpt: e.target.value })}
-                  placeholder="Ringkasan isi berita *"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#0D151B] border border-slate-700 text-xs text-white"
-                />
-                <button
-                  type="submit"
-                  className="w-full py-3 rounded-xl bg-[#14B866] hover:bg-[#10B981] text-slate-950 font-black text-xs"
+          <div className="space-y-6">
+            {/* Kelola Logo Sponsor Dinamis */}
+            <div className="rounded-2xl bg-[#131F28] border border-[#14B866]/40 p-6 space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h2 className="font-black text-lg text-white flex items-center gap-2">
+                    <Award className="w-5 h-5 text-[#14B866]" />
+                    <span>Kelola Logo Sponsor </span>
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Upload, crop, ubah, atau hapus logo sponsor. Seluruh logo di bawah langsung tayang berjalan di <strong className="text-emerald-400">/beranda</strong>.
+                  </p>
+                </div>
+                <span className="px-3 py-1 rounded-full bg-[#14B866]/15 text-[#14B866] text-xs font-black">
+                  {sponsors.length} Sponsor Aktif
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                {/* Form Upload / Edit + Crop */}
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!sponsorForm.logoUrl) {
+                      triggerToast('Silakan pilih & crop gambar logo sponsor terlebih dahulu!');
+                      return;
+                    }
+                    if (editingSponsorId) {
+                      updateSponsor?.(editingSponsorId, sponsorForm);
+                      triggerToast(`Sponsor "${sponsorForm.name}" berhasil diperbarui!`);
+                      cancelEditSponsor();
+                    } else {
+                      addSponsor?.(sponsorForm);
+                      setSponsorForm({ name: '', logoUrl: '' });
+                      triggerToast('Logo sponsor berhasil dipasang ke marquee Beranda!');
+                    }
+                  }}
+                  className="lg:col-span-5 space-y-3"
                 >
-                  Publikasikan Berita ke Halaman User
-                </button>
-              </form>
+                  {editingSponsorId && (
+                    <div className="px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-500/40 flex items-center justify-between text-xs">
+                      <span className="font-bold text-amber-300">Mode Edit Sponsor</span>
+                      <button
+                        type="button"
+                        onClick={cancelEditSponsor}
+                        className="text-slate-300 hover:text-white underline font-bold"
+                      >
+                        Batal Edit
+                      </button>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                      Nama Brand / Sponsor (Label Admin) *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={sponsorForm.name}
+                      onChange={(e) => setSponsorForm({ ...sponsorForm, name: e.target.value })}
+                      placeholder="Contoh: ORTUSEIGHT FUTSAL"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-[#0D151B] border border-slate-700 text-xs text-white outline-none focus:border-[#14B866]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                      Upload &amp; Crop Logo Sponsor (3:1) *
+                    </label>
+                    <label className="flex flex-col items-center justify-center gap-2 p-4 rounded-xl bg-[#0D151B] border-2 border-dashed border-slate-700 hover:border-[#14B866] cursor-pointer transition-colors">
+                      {sponsorForm.logoUrl ? (
+                        <div className="w-36 h-12 rounded-lg overflow-hidden border border-[#14B866]/60 bg-slate-900">
+                          <img
+                            src={sponsorForm.logoUrl}
+                            alt="Preview Logo"
+                            className="w-full h-full object-cover object-center"
+                          />
+                        </div>
+                      ) : (
+                        <Upload className="w-6 h-6 text-[#14B866]" />
+                      )}
+                      <span className="text-[11px] font-bold text-slate-300">
+                        {sponsorForm.logoUrl
+                          ? 'Klik untuk ganti / upload ulang gambar'
+                          : 'Pilih gambar sponsor untuk diatur crop-nya'}
+                      </span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleSponsorFileSelect}
+                        className="hidden"
+                      />
+                    </label>
+
+                    {sponsorForm.logoUrl && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const img = new window.Image();
+                          img.onload = () => {
+                            setRawSponsorImg({
+                              src: sponsorForm.logoUrl,
+                              width: img.naturalWidth || 450,
+                              height: img.naturalHeight || 150,
+                            });
+                            setCropZoom(1);
+                            setCropOffset({ x: 0, y: 0 });
+                          };
+                          img.src = sponsorForm.logoUrl;
+                        }}
+                        className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-bold text-amber-400 hover:underline"
+                      >
+                        <Crop className="w-3.5 h-3.5" />
+                        <span>Sesuaikan Ulang Area Crop</span>
+                      </button>
+                    )}
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-3 rounded-xl bg-[#14B866] hover:bg-[#10B981] text-slate-950 font-black text-xs flex items-center justify-center gap-1.5 shadow-lg"
+                  >
+                    {editingSponsorId ? (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>Simpan Perubahan Sponsor</span>
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="w-4 h-4" />
+                        <span>Pasang Gambar Sponsor ke Beranda</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+
+                {/* Daftar Sponsor Aktif (Bisa Edit & Hapus) */}
+                <div className="lg:col-span-7 space-y-2.5">
+                  <div className="text-xs font-bold text-slate-400">
+                    Daftar Sponsor Aktif di Beranda ({sponsors.length}):
+                  </div>
+
+                  {sponsors.length === 0 ? (
+                    <div className="p-6 rounded-xl bg-[#0D151B] border border-dashed border-slate-700 text-center text-xs text-slate-400">
+                      Belum ada logo sponsor yang dipasang. Unggah logo sponsor di formulir sebelah kiri untuk menampilkannya di Beranda.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {sponsors.map((sp) => (
+                        <div
+                          key={sp.id}
+                          className={`p-3.5 rounded-xl bg-[#0D151B] border flex items-center justify-between gap-3 ${
+                            editingSponsorId === sp.id ? 'border-amber-400' : 'border-slate-800'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-24 h-8 rounded-lg overflow-hidden bg-slate-900 border border-slate-700 shrink-0">
+                              <img
+                                src={sp.logoUrl}
+                                alt={sp.name}
+                                className="w-full h-full object-cover object-center"
+                              />
+                            </div>
+                            <span className="font-black text-xs text-white truncate">{sp.name}</span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => startEditSponsor(sp)}
+                              title="Edit / Crop Ulang Sponsor"
+                              className="p-2 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 text-amber-400"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (editingSponsorId === sp.id) cancelEditSponsor();
+                                removeSponsor?.(sp.id);
+                                triggerToast(`Sponsor "${sp.name}" dihapus dari Beranda.`);
+                              }}
+                              title="Hapus Sponsor"
+                              className="p-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 text-rose-400"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
-            {/* Tambah Galeri */}
-            <div className="rounded-2xl bg-[#131F28] border border-slate-800 p-6 space-y-4">
-              <h2 className="font-black text-lg text-white flex items-center gap-2">
-                <ImageIcon className="w-5 h-5 text-amber-400" />
-                <span>Tambah Foto / Video Highlight Galeri</span>
-              </h2>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (!galleryForm.title) return;
-                  addGalleryItem(galleryForm);
-                  setGalleryForm({
-                    type: 'FOTO',
-                    category: 'DOKUMENTASI MATCHDAY',
-                    title: '',
-                    venue: 'GOR Cendrawasih Jakarta',
-                    caption: '',
-                  });
-                  triggerToast('Media galeri baru tampil di Beranda & Menu Media Publik!');
-                }}
-                className="space-y-3"
-              >
-                <div className="grid grid-cols-2 gap-3">
-                  <select
-                    value={galleryForm.type}
-                    onChange={(e) => setGalleryForm({ ...galleryForm, type: e.target.value })}
-                    className="px-3.5 py-2.5 rounded-xl bg-[#0D151B] border border-slate-700 text-xs text-white"
-                  >
-                    <option value="FOTO">FOTO LAGA</option>
-                    <option value="VIDEO">VIDEO HIGHLIGHT</option>
-                  </select>
+            {/* Berita & Galeri */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Tambah Berita */}
+              <div className="rounded-2xl bg-[#131F28] border border-slate-800 p-6 space-y-4">
+                <h2 className="font-black text-lg text-white flex items-center gap-2">
+                  <Newspaper className="w-5 h-5 text-[#14B866]" />
+                  <span>Terbitkan Berita &amp; Pengumuman Baru</span>
+                </h2>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!newsForm.title) return;
+                    addNewsArticle(newsForm);
+                    setNewsForm({ category: 'PENGUMUMAN LIGA', title: '', excerpt: '' });
+                    triggerToast('Berita baru berhasil diterbitkan ke menu Media Publik!');
+                  }}
+                  className="space-y-3"
+                >
                   <input
                     type="text"
-                    value={galleryForm.venue}
-                    onChange={(e) => setGalleryForm({ ...galleryForm, venue: e.target.value })}
-                    placeholder="Lokasi GOR"
-                    className="px-3.5 py-2.5 rounded-xl bg-[#0D151B] border border-slate-700 text-xs text-white"
+                    value={newsForm.category}
+                    onChange={(e) => setNewsForm({ ...newsForm, category: e.target.value })}
+                    placeholder="Kategori (contoh: LAPORAN LAGA)"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#0D151B] border border-slate-700 text-xs text-white"
                   />
-                </div>
-                <input
-                  type="text"
-                  required
-                  value={galleryForm.title}
-                  onChange={(e) => setGalleryForm({ ...galleryForm, title: e.target.value })}
-                  placeholder="Judul Foto / Highlight Video *"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#0D151B] border border-slate-700 text-xs text-white"
-                />
-                <textarea
-                  rows={2}
-                  required
-                  value={galleryForm.caption}
-                  onChange={(e) => setGalleryForm({ ...galleryForm, caption: e.target.value })}
-                  placeholder="Keterangan singkat dokumentasi *"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#0D151B] border border-slate-700 text-xs text-white"
-                />
-                <button
-                  type="submit"
-                  className="w-full py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs"
+                  <input
+                    type="text"
+                    required
+                    value={newsForm.title}
+                    onChange={(e) => setNewsForm({ ...newsForm, title: e.target.value })}
+                    placeholder="Judul Berita Utama *"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#0D151B] border border-slate-700 text-xs text-white"
+                  />
+                  <textarea
+                    rows={3}
+                    required
+                    value={newsForm.excerpt}
+                    onChange={(e) => setNewsForm({ ...newsForm, excerpt: e.target.value })}
+                    placeholder="Ringkasan isi berita *"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#0D151B] border border-slate-700 text-xs text-white"
+                  />
+                  <button
+                    type="submit"
+                    className="w-full py-3 rounded-xl bg-[#14B866] hover:bg-[#10B981] text-slate-950 font-black text-xs"
+                  >
+                    Publikasikan Berita ke Halaman User
+                  </button>
+                </form>
+              </div>
+
+              {/* Tambah Galeri */}
+              <div className="rounded-2xl bg-[#131F28] border border-slate-800 p-6 space-y-4">
+                <h2 className="font-black text-lg text-white flex items-center gap-2">
+                  <ImageIcon className="w-5 h-5 text-amber-400" />
+                  <span>Tambah Foto / Video Highlight Galeri</span>
+                </h2>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!galleryForm.title) return;
+                    addGalleryItem(galleryForm);
+                    setGalleryForm({
+                      type: 'FOTO',
+                      category: 'DOKUMENTASI MATCHDAY',
+                      title: '',
+                      venue: 'GOR Cendrawasih Jakarta',
+                      caption: '',
+                    });
+                    triggerToast('Media galeri baru tampil di Beranda & Menu Media Publik!');
+                  }}
+                  className="space-y-3"
                 >
-                  Unggah ke Galeri Beranda &amp; Media
-                </button>
-              </form>
+                  <div className="grid grid-cols-2 gap-3">
+                    <select
+                      value={galleryForm.type}
+                      onChange={(e) => setGalleryForm({ ...galleryForm, type: e.target.value })}
+                      className="px-3.5 py-2.5 rounded-xl bg-[#0D151B] border border-slate-700 text-xs text-white"
+                    >
+                      <option value="FOTO">FOTO LAGA</option>
+                      <option value="VIDEO">VIDEO HIGHLIGHT</option>
+                    </select>
+                    <input
+                      type="text"
+                      value={galleryForm.venue}
+                      onChange={(e) => setGalleryForm({ ...galleryForm, venue: e.target.value })}
+                      placeholder="Lokasi GOR"
+                      className="px-3.5 py-2.5 rounded-xl bg-[#0D151B] border border-slate-700 text-xs text-white"
+                    />
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    value={galleryForm.title}
+                    onChange={(e) => setGalleryForm({ ...galleryForm, title: e.target.value })}
+                    placeholder="Judul Foto / Highlight Video *"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#0D151B] border border-slate-700 text-xs text-white"
+                  />
+                  <textarea
+                    rows={2}
+                    required
+                    value={galleryForm.caption}
+                    onChange={(e) => setGalleryForm({ ...galleryForm, caption: e.target.value })}
+                    placeholder="Keterangan singkat dokumentasi *"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#0D151B] border border-slate-700 text-xs text-white"
+                  />
+                  <button
+                    type="submit"
+                    className="w-full py-3 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs"
+                  >
+                    Unggah ke Galeri Beranda &amp; Media
+                  </button>
+                </form>
+              </div>
             </div>
           </div>
         )}
@@ -781,7 +1272,11 @@ export default function AdminDashboardPage() {
                     <div className="pt-3 border-t border-white/15 flex items-center justify-between text-[10px]">
                       <div>
                         <div className="text-slate-400">SPONSOR</div>
-                        <div className="font-black text-amber-400">SPECS • BANK DKI</div>
+                        <div className="font-black text-amber-400">
+                          {sponsors.length > 0
+                            ? sponsors.slice(0, 2).map((s) => s.name).join(' • ')
+                            : 'OFFICIAL PARTNER'}
+                        </div>
                       </div>
                       <div className="text-right">
                         <div className="text-slate-400">TECH PARTNER</div>
