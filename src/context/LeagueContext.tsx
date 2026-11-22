@@ -957,10 +957,10 @@ export function LeagueProvider({ children }) {
   );
 }
 
-export function useLeague() {
-  const ctx = useContext(LeagueContext);
-  if (!ctx) {
-    throw new Error('useLeague harus digunakan di dalam <LeagueProvider>');
+export const useLeague = (): any => {
+  const context = useContext(LeagueContext);
+  if (!context) {
+    throw new Error('useLeague must be used within a LeagueProvider');
   }
-  return ctx;
-}
+  return context;
+};
